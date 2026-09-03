@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { listConstants, resolve, CAPACITY, PRICE } from "../constants.ts";
+import { listConstants, resolve, writeScalesFor, CAPACITY, PRICE } from "../constants.ts";
 import { TEMPLATES, defaultInputs } from "../presets.ts";
 import { computeStack } from "../stack.ts";
 
@@ -12,6 +12,8 @@ describe("listConstants — generated assumptions rows", () => {
     const paths = new Set(rows.map((r) => r.path));
     expect(paths.has("pg.write")).toBe(true);
     expect(paths.has("cass.read")).toBe(true);
+    expect(paths.has("yuga.write")).toBe(true);
+    expect(paths.has("lat_db.yugabytedb")).toBe(true);
     expect(paths.has("PRICE.gcp.compute")).toBe(true);
     expect(paths.has("ALG.rsa.verify")).toBe(true);
     expect(paths.has("AUTHZ.lat_verify_call")).toBe(true);
@@ -48,6 +50,17 @@ describe("resolve — override merge by dotted path", () => {
   });
 });
 
+describe("writeScalesFor — single source of truth for the write model", () => {
+  it("single-primary engines pin writes; scale-out stores (incl. YugabyteDB) do not", () => {
+    for (const db of ["postgres", "mysql", "aurora", "oracledb"] as const) {
+      expect(writeScalesFor(db)).toBe(false);
+    }
+    for (const db of ["cassandra", "mongodb", "yugabytedb"] as const) {
+      expect(writeScalesFor(db)).toBe(true);
+    }
+  });
+});
+
 describe("TEMPLATES — reference architectures compute cleanly", () => {
   it("all templates produce a finite total at default rps", () => {
     for (const t of TEMPLATES) {
@@ -61,6 +74,12 @@ describe("TEMPLATES — reference architectures compute cleanly", () => {
     const r = computeStack({ ...t.inputs, rps: 200000 });
     expect(r.writeCeiling).toBe(true);
     expect(r.status).toBe("bad");
+  });
+  it("Yugabyte Distributed SQL never hits a write ceiling, even at Postgres-breaking load", () => {
+    const t = TEMPLATES.find((x) => x.id === "yugabyte-distributed-sql")!;
+    const r = computeStack({ ...t.inputs, rps: 1_000_000 });
+    expect(r.writeCeiling).toBe(false);
+    expect(Number.isFinite(r.total)).toBe(true);
   });
   it("no template enables the authz tier (authz removed from the simulation)", () => {
     for (const t of TEMPLATES) {

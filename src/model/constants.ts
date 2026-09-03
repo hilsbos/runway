@@ -11,7 +11,7 @@
  * best-effort estimates per §4.
  */
 
-import type { Constant, Provider, ProviderPrice } from "./types.ts";
+import type { Constant, Db, Provider, ProviderPrice } from "./types.ts";
 
 /* helper to keep declarations terse */
 const C = (
@@ -102,6 +102,18 @@ export const CAPACITY = {
     rf: C(3, "", "replication factor (Data Guard standbys)", [1, 5]),
     writeScales: false,
   },
+  // YugabyteDB (YSQL, Postgres-compatible distributed SQL): every tablet has a
+  // Raft leader that serves its writes, so write capacity scales with node
+  // count (no single-primary wall), at a per-node cost in consensus overhead.
+  // Per-node figures are the 100-node c5.4xlarge YSQL scale test normalized
+  // from 16 to 8 vCPU (2.8M sel/s, 1.26M ins/s -> 14000 / 6300; shipped 6000).
+  yuga: {
+    read: C(14000, "ops/s", "YSQL scale test 2.8M sel/s on 100×c5.4xlarge, per 8 vCPU, Appx B", [5000, 100000]),
+    write: C(6000, "ops/s", "YSQL scale test 1.26M ins/s on 100×c5.4xlarge, per 8 vCPU (Raft RF3), Appx B", [1000, 50000]),
+    cost: C(600, "USD/mo", "r7g.2xlarge basis (YSQL wants 16+ core/64 GB nodes, same class as pg), Appx B", [200, 1500]),
+    rf: C(3, "", "replication factor (RF ≥ 3 required for production; FT f needs 2f+1)", [3, 7]),
+    writeScales: true,
+  },
 
   // distributed cache (Redis-class)
   redis_tput: C(150000, "ops/s", "Redis GET/SET w/ IO-threads, Appx B", [50000, 500000]),
@@ -127,6 +139,7 @@ export const CAPACITY = {
     mysql: C(2.5, "ms", "MySQL read est.", [0.5, 20]),
     aurora: C(2, "ms", "Aurora read est. (reader endpoint)", [0.5, 20]),
     oracledb: C(3, "ms", "Oracle DB read est.", [0.5, 20]),
+    yugabytedb: C(3, "ms", "YugabyteDB YSQL read est. (YCSB C 3.5 ms; KV scale test 0.56 ms), Appx B", [0.5, 20]),
   },
 
   // egress
@@ -143,7 +156,18 @@ export const DB_KEY = {
   mysql: "mysql",
   aurora: "aurora",
   oracledb: "oracle",
+  yugabytedb: "yuga",
 } as const;
+
+/**
+ * Whether a datastore adds write capacity by adding nodes (scale-out: Cassandra,
+ * MongoDB, YugabyteDB) or pins writes to one primary/writer (Postgres, MySQL,
+ * Aurora, Oracle). A property of the engine, declared once on CAPACITY and read
+ * here by both computeStack and the datastores lens so they cannot drift.
+ */
+export function writeScalesFor(db: Db): boolean {
+  return CAPACITY[DB_KEY[db]].writeScales;
+}
 
 /* -------------------------------------------------------------------------- */
 /* AUTHZ (§A.2 + 2 new latency constants)                                      */

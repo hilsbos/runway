@@ -10,7 +10,7 @@ import type {
   Status,
   TierKey,
 } from "./types.ts";
-import { DB_KEY, resolve } from "./constants.ts";
+import { resolve, writeScalesFor } from "./constants.ts";
 import { sanitizeInputs, sanitizeOverrides } from "./sanitize.ts";
 import { computeLb } from "./components/lb.ts";
 import { computeApi } from "./components/api.ts";
@@ -78,9 +78,7 @@ export function computeStack(
   const cache = computeCache(g, inputs.cache, cacheGets, writes, dmult);
 
   // ---- 4. DATASTORE ----
-  const dbKey = DB_KEY[inputs.db];
-  const writeScales =
-    dbKey === "cass" || dbKey === "mongo"; // pg.writeScales = false
+  const writeScales = writeScalesFor(inputs.db);
   const datastore = computeDatastore(
     g,
     inputs.db,

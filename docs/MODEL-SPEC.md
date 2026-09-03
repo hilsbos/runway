@@ -441,7 +441,7 @@ interface CapacityInputs {
   readFrac: number;            // 0.5 .. 1.0  (fraction of rps that are reads)
   lang: 'rust' | 'java';
   proto: 'rest' | 'grpc';
-  db: 'cassandra' | 'mongodb' | 'postgres' | 'mysql' | 'aurora' | 'oracledb';
+  db: 'cassandra' | 'mongodb' | 'postgres' | 'mysql' | 'aurora' | 'oracledb' | 'yugabytedb';
   cache: 'none' | 'local' | 'distributed';
   hitRatio: number;            // 0 .. 0.99 (ignored when cache==='none')
   cores: number;               // vCPU per API node (1 .. 64)
@@ -474,6 +474,7 @@ export const CAPACITY = {
   mysql:  { read: 28000, write: 14000, cost: 600,  rf: 3, writeScales: false }, // InnoDB single-primary; RDS r7g.2xlarge basis
   aurora: { read: 60000, write: 30000, cost: 1100, rf: 3, writeScales: false }, // single writer + read replicas; I/O-Optimized basis
   oracle: { read: 35000, write: 18000, cost: 3000, rf: 3, writeScales: false }, // single-primary; cost dominated by EE licensing
+  yuga:   { read: 14000, write: 6000,  cost: 600,  rf: 3, writeScales: true  }, // YSQL distributed SQL; Raft leader per tablet, writes scale out; r7g-class basis
   // distributed cache (Redis-class)
   redis_tput: 150000, redis_cost: 320, redis_rf: 2,
   // multipliers
@@ -483,13 +484,13 @@ export const CAPACITY = {
   // latency, ms
   lat_haproxy: 0.2, lat_api_rust: 0.4, lat_api_java: 0.9, lat_grpc_factor: 0.85,
   lat_local_hit: 0.2, lat_dist_hit: 0.8,
-  lat_db: { cassandra: 3, mongodb: 4, postgres: 2.5, mysql: 2.5, aurora: 2, oracledb: 3 },
+  lat_db: { cassandra: 3, mongodb: 4, postgres: 2.5, mysql: 2.5, aurora: 2, oracledb: 3, yugabytedb: 3 },
   // egress
   payload_kb: 1, egress_per_gb: 0.09,
   SEC_PER_MONTH: 2_592_000,
 } as const;
 ```
-`db` key maps: `cassandra→cass`, `mongodb→mongo`, `postgres→pg`, `mysql→mysql`, `aurora→aurora`, `oracledb→oracle`. The four single-primary engines (pg, mysql, aurora, oracle) hit a write ceiling at `write/(1−readFrac)` rps; only the scale-out stores (cass, mongo) add write capacity by adding nodes.
+`db` key maps: `cassandra→cass`, `mongodb→mongo`, `postgres→pg`, `mysql→mysql`, `aurora→aurora`, `oracledb→oracle`, `yugabytedb→yuga`. The four single-primary engines (pg, mysql, aurora, oracle) hit a write ceiling at `write/(1−readFrac)` rps; only the scale-out stores (cass, mongo, yuga) add write capacity by adding nodes. `writeScales` is declared once per engine on `CAPACITY` and read through `writeScalesFor(db)` by both `computeStack` and the datastores lens.
 
 ### Formulas (in order)
 ```
@@ -688,6 +689,9 @@ Exact on node counts and status; ±2% on money.
 - **Redis:** ~100K+ ops/s/node baseline GET/SET; 500K–1M+ with IO-threads/pipelining (Redis docs).
 - **HAProxy:** 1M+ rps on 8 cores, 2M+ on 64-core Graviton2 (HAProxy Technologies); we use 200K/node (4 vCPU) derated for TLS + real backends.
 - **Datastores:** YCSB community benchmarks; Mongo ~90–270K aggregate (per-node kept conservative); Cassandra writes scale out (LSM); Postgres writes pinned to one primary, reads scale via replicas.
+- **YugabyteDB (YSQL, RF 3):** 100-node scale test on c5.4xlarge (16 vCPU, gp2 EBS, single AZ): 2.8M selects/s (0.56 ms avg) and 1.26M inserts/s (1.66 ms avg) → 28,000 reads and 12,600 inserts per 16-vCPU node → 14,000 reads and 6,300 inserts per 8-vCPU node; shipped as read 14,000 / write 6,000 (mild derate toward the YCSB update path: workload A on 3×c5.4xlarge = 37,377 ops/s → 18,689 updates/s cluster-wide → ~3,100 updates per 8-vCPU node). Sources: docs.yugabyte.com/preview/benchmark/scalability/scaling-queries-ysql/, yugabyte.com/blog/how-yugabytedb-scales-to-more-than-1-million-inserts-per-sec/, docs.yugabyte.com/preview/benchmark/ycsb-ysql/ (YCSB C read latency 3.5 ms).
+- **YugabyteDB node cost:** deploy checklist recommends 16+ cores / 64 GB+ RAM for YSQL, M6i family with gp3 ≥ 250 GB, SSD required, RF ≥ 3 (docs.yugabyte.com/preview/deploy/checklist/). m6i.2xlarge 8 vCPU/32 GiB ≈ $0.384/h ≈ $280/mo raw (instances.vantage.sh); kept on the same $600/mo r7g.2xlarge-class basis as Postgres so the head-to-head is apples-to-apples. Managed check: YugabyteDB Aeon Standard $125/vCPU/mo → $1,000 per 8-vCPU node + $0.10/GB-mo storage (yugabyte.com/pricing/) ≈ 1.67× self-hosted, consistent with `managed_mult` 1.6. Core database is open source.
+- **YugabyteDB architecture:** each tablet elects a Raft leader that serves writes and replicates to peers, so write capacity scales with node count (no single primary); strongly consistent reads and writes (docs.yugabyte.com/preview/architecture/docdb-replication/replication/).
 - **Crypto (OpenSSL speed):** ECDSA P-256 ~32,866 sign/s, ~10,499 verify/s; Ed25519 ~30,775 sign/s, ~11,870 verify/s; RSA-2048 slow sign (~1–2K/s) but fast verify (~33K/s). Hardware-dependent.
 - **Reference architectures:** Google Zanzibar (global ACLs, consistency tokens), SPIFFE/SPIRE (cross-cloud workload identity), OPA / Cedar (edge policy decision).
 

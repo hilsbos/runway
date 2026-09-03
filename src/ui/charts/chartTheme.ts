@@ -33,6 +33,7 @@ export const TOKENS = {
   violet: "#b08cff",
   blue: "#6f8cff",
   pink: "#ff7eb6",
+  lime: "#c8f04d",
 } as const;
 
 /* -------------------------------------------------------------------------- */
@@ -94,11 +95,12 @@ export type DbKey =
   | "mysql"
   | "aurora"
   | "oracledb"
+  | "yugabytedb"
   | "cassandra"
   | "mongodb";
 
 /**
- * Stable per-datastore line colors for the Datastores lens. Six distinct hues
+ * Stable per-datastore line colors for the Datastores lens. Seven distinct hues
  * so the overlaid scaling curves read apart; none is red, since the chart marks
  * each single-primary store's "past the write wall" segment dashed/red.
  */
@@ -107,6 +109,7 @@ export const DB_COLORS: Record<DbKey, string> = {
   mysql: TOKENS.blue,
   aurora: TOKENS.amber,
   oracledb: TOKENS.pink,
+  yugabytedb: TOKENS.lime,
   cassandra: TOKENS.green,
   mongodb: TOKENS.violet,
 };

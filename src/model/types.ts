@@ -17,7 +17,8 @@ export type Db =
   | "postgres"
   | "mysql"
   | "aurora"
-  | "oracledb";
+  | "oracledb"
+  | "yugabytedb";
 export type Cache = "none" | "local" | "distributed";
 export type Provider = "aws" | "gcp" | "azure" | "onprem";
 export type Status = "ok" | "warn" | "bad";

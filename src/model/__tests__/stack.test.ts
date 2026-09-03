@@ -127,6 +127,36 @@ describe("U4 — 200K postgres readFrac .7 cache none, authz off (write ceiling)
   });
 });
 
+describe("U5 — U4 on yugabytedb (distributed SQL: writes scale out, no ceiling)", () => {
+  // Same load as U4: 200K rps, readFrac .7, cache none -> reads 140000, writes 60000.
+  // yuga read 14000, write 6000, cost 600, rf 3, tu 0.7 ; dmult = reserved 0.62 * aws storage 1
+  const r = computeStack(
+    snap({ rps: 200000, db: "yugabytedb", readFrac: 0.7, cache: "none" }),
+  );
+  it("node counts: read and write both need 15 nodes", () => {
+    // readNodes  = ceil(140000 / (14000*0.7)) = ceil(140000/9800) = ceil(14.286) = 15
+    // writeNodes = ceil(60000  / (6000*0.7))  = ceil(60000/4200)  = ceil(14.286) = 15
+    // nodes = max(3, 15, 15) = 15 ; LB/API identical to U4
+    expect(r.lbNodes).toBe(2);
+    expect(r.apiNodes).toBe(4);
+    expect(r.cacheNodes).toBe(0);
+    expect(r.dbNodes).toBe(15);
+  });
+  it("no write ceiling; dbUtil 2/3", () => {
+    // util = max(140000/(15*14000), 60000/(15*6000)) = max(0.6667, 0.6667)
+    expect(r.writeCeiling).toBe(false);
+    expect(r.datastore.util).toBeCloseTo(2 / 3, 6);
+    expect(r.status).not.toBe("bad");
+  });
+  it("datastore cost / p50", () => {
+    // cost = 15 * 600 * 0.62 = 5580
+    expect(r.costs.datastore).toBeCloseTo(5580, 6);
+    // p50 = lb 0.2 + api(rust rest) 0.4 + db 3.0 (cache none => every read hits the store)
+    expect(r.p50).toBeCloseTo(3.6, 6);
+    expect(r.latParts.lb + r.latParts.verify + r.latParts.api + r.latParts.cacheHit + r.latParts.db).toBeCloseTo(r.p50, 9);
+  });
+});
+
 describe("edge cases — each tier as bottleneck / cache modes", () => {
   it("cache 'none' → 0 cache nodes, h=0", () => {
     const r = computeStack(snap({ rps: 50000, cache: "none" }));

@@ -65,6 +65,7 @@ const DB_LABEL: Record<StackInputs["db"], string> = {
   mysql: "MySQL",
   aurora: "Aurora",
   oracledb: "Oracle",
+  yugabytedb: "Yugabyte",
 };
 
 export interface StackDiagramProps {

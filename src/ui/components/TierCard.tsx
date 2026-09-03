@@ -10,6 +10,7 @@ const ACCENT: Record<SliderAccent, string> = {
   red: "var(--red)",
   blue: "var(--blue)",
   pink: "var(--pink)",
+  lime: "var(--lime)",
 };
 
 /** A key/value spec chip (e.g. "8 vCPU", "16 GB", "rf 3"). */

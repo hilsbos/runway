@@ -180,6 +180,25 @@ export const TEMPLATES: NamedDesign[] = [
     },
   },
   {
+    id: "yugabyte-distributed-sql",
+    name: "Yugabyte Distributed SQL",
+    inputs: {
+      provider: "aws",
+      readFrac: 0.8,
+      lang: "rust",
+      proto: "rest",
+      db: "yugabytedb",
+      cache: "distributed",
+      hitRatio: 0.85,
+      cores: 8,
+      ramGB: 16,
+      managed: false,
+      reserved: true,
+      egress: false,
+      authz: { ...AUTHZ_OFF },
+    },
+  },
+  {
     id: "oracle-enterprise",
     name: "Oracle Enterprise",
     inputs: {

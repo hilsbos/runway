@@ -9,6 +9,7 @@ const ACCENT: Record<SliderAccent, string> = {
   red: "var(--red)",
   blue: "var(--blue)",
   pink: "var(--pink)",
+  lime: "var(--lime)",
 };
 
 export interface StatCardProps {

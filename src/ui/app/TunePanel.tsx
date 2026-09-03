@@ -41,6 +41,7 @@ const DBS: SegmentedOption<Db>[] = [
   { value: "mysql", label: "MySQL" },
   { value: "aurora", label: "Aurora" },
   { value: "oracledb", label: "Oracle" },
+  { value: "yugabytedb", label: "Yugabyte" },
   { value: "cassandra", label: "Cassandra" },
   { value: "mongodb", label: "MongoDB" },
 ];

@@ -8,8 +8,9 @@
  *   pg:    read 25000, write 12000, cost 600, rf 3, writeScales false
  *   cass:  read 50000, write 50000, cost 650, rf 3, writeScales true
  *   mongo: read 50000, write 25000, cost 550, rf 3, writeScales true
+ *   yuga:  read 14000, write 6000,  cost 600, rf 3, writeScales true
  *   target_util = 0.7
- *   lat_db: postgres 2.5ms, cassandra 3ms, mongodb 4ms
+ *   lat_db: postgres 2.5ms, cassandra 3ms, mongodb 4ms, yugabytedb 3ms
  */
 import { describe, expect, it } from "vitest";
 import { datastoreFacts, datastoreScaling } from "../datastores.ts";
@@ -74,6 +75,16 @@ describe("datastoreFacts", () => {
     expect(oracle.rf).toBe(3);
     expect(oracle.readLatencyMs).toBe(3);
     expect(oracle.writeScales).toBe(false);
+
+    // --- distributed SQL: ACID but scale-out writes (Raft leader per tablet) ---
+    const yuga = factOf("yugabytedb");
+    expect(yuga.label).toBe("YugabyteDB");
+    expect(yuga.readPerNode).toBe(14000);
+    expect(yuga.writePerNode).toBe(6000);
+    expect(yuga.costPerNode).toBe(600);
+    expect(yuga.rf).toBe(3);
+    expect(yuga.readLatencyMs).toBe(3);
+    expect(yuga.writeScales).toBe(true);
   });
 
   it("exposes the CAP-theorem / ACID-vs-BASE classification per engine", () => {
@@ -92,14 +103,21 @@ describe("datastoreFacts", () => {
     expect(mongo.consistency).toBe("BASE");
     expect(mongo.cap).toBe("CP");
     expect(mongo.capNote).toMatch(/4\.0/); // notes the multi-document ACID nuance
+    // Distributed SQL: ACID + CP like the relational engines, yet scale-out.
+    const yuga = factOf("yugabytedb");
+    expect(yuga.consistency).toBe("ACID");
+    expect(yuga.cap).toBe("CP");
+    expect(yuga.capNote).toMatch(/Raft/);
+    expect(yuga.writeScales).toBe(true);
   });
 
-  it("returns all six datastores in display order", () => {
+  it("returns all seven datastores in display order", () => {
     expect(facts().map((f) => f.db)).toEqual([
       "postgres",
       "mysql",
       "aurora",
       "oracledb",
+      "yugabytedb",
       "cassandra",
       "mongodb",
     ]);
@@ -114,6 +132,7 @@ describe("datastoreFacts", () => {
     // scale-out stores never wall
     expect(factOf("cassandra").writeCeilingRps).toBeNull();
     expect(factOf("mongodb").writeCeilingRps).toBeNull();
+    expect(factOf("yugabytedb").writeCeilingRps).toBeNull();
   });
 
   it("Postgres write wall = writePerNode / (1 - readFrac); scale-out DBs are null", () => {
@@ -177,6 +196,19 @@ describe("datastoreScaling — node math (hand-derived)", () => {
     expect(m.cost).toBe(3300);
   });
 
+  it("YugabyteDB @200k: read-bound at 19 nodes (write needs 5), no ceiling", () => {
+    // readNodes  = ceil(180000 / (14000*0.7)) = ceil(180000/9800) = ceil(18.367) = 19
+    // writeNodes = ceil(20000  / (6000*0.7))  = ceil(20000/4200)  = ceil(4.762)  = 5
+    // nodes = max(3, 19, 5) = 19 ; writes scale out -> no ceiling
+    // util = max(180000/(19*14000), 20000/(19*6000)) = max(0.67669, 0.17544) = 0.67669
+    const y = at200k("yugabytedb");
+    expect(y.nodes).toBe(19);
+    expect(y.writeCeiling).toBe(false);
+    expect(y.util).toBeCloseTo(180000 / 266000, 6);
+    // cost = 19 * 600 = 11400
+    expect(y.cost).toBe(11400);
+  });
+
   it("MySQL @200k: reads 180000 -> 10 nodes, single-primary, writeCeiling", () => {
     // readNodes = ceil(180000 / (28000*0.7)) = ceil(180000/19600) = ceil(9.184) = 10
     // writeNodes = 1 ; nodes = max(3, 10, 1) = 10 ; writes 20000 > 14000 -> ceiling
@@ -221,8 +253,8 @@ describe("datastoreScaling — write wall & monotonicity", () => {
     expect(pg.points.some((p) => !p.writeCeiling)).toBe(true);
   });
 
-  it("Cassandra and MongoDB never hit a write ceiling", () => {
-    for (const db of ["cassandra", "mongodb"] as const) {
+  it("Cassandra, MongoDB and YugabyteDB never hit a write ceiling", () => {
+    for (const db of ["cassandra", "mongodb", "yugabytedb"] as const) {
       const c = curves.find((x) => x.db === db)!;
       expect(c.points.every((p) => p.writeCeiling === false)).toBe(true);
     }

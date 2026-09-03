@@ -1,17 +1,19 @@
 /**
- * Runway — Datastores view: head-to-head scaling lens for the three engines.
+ * Runway — Datastores view: head-to-head scaling lens for the engines.
  *
- * Shows HOW Postgres / Cassandra / MongoDB scale node count + cost as load
- * grows, and WHERE clustering them hits a wall. The lens (load, read/write
+ * Shows HOW each datastore (single-primary relational, distributed SQL,
+ * scale-out NoSQL) scales node count + cost as load grows, and WHERE
+ * clustering it hits a wall. The lens (load, read/write
  * mix, provider, managed) is LOCAL React state — it is NOT persisted to
  * AppState or the share URL (only the tab `mode` persists). All numbers come
  * from the model (`datastoreScaling` / `datastoreFacts`); the UI never recomputes
  * node math.
  *
  * The story: Postgres pins writes to a single primary, so past a write wall it
- * cannot add write capacity by adding nodes — you must shard. Cassandra and
- * MongoDB scale writes horizontally (Cassandra needs fewer nodes thanks to its
- * higher write throughput per node).
+ * cannot add write capacity by adding nodes — you must shard. YugabyteDB,
+ * Cassandra and MongoDB scale writes horizontally (Cassandra needs fewer nodes
+ * thanks to its higher write throughput per node; YugabyteDB pays for ACID
+ * consensus with more nodes).
  */
 import { useMemo, useState } from "react";
 import {
@@ -48,6 +50,7 @@ const DB_ACCENT: Record<Db, SliderAccent> = {
   mysql: "blue",
   aurora: "amber",
   oracledb: "pink",
+  yugabytedb: "lime",
   cassandra: "green",
   mongodb: "violet",
 };
@@ -108,7 +111,7 @@ export function DatastoresView() {
           .join(", ")}{" "}
         rps); past it, adding nodes buys <em>no</em> write capacity and you must{" "}
         <b>shard</b>.{" "}
-        <strong>{scaleOut.map((f) => f.label).join(" & ")}</strong> scale writes{" "}
+        <strong>{scaleOut.map((f) => f.label).join(", ")}</strong> scale writes{" "}
         <em>horizontally</em> — node count grows smoothly with load (
         {scaleOut
           .map((f) => `${f.label} ${compact(f.writePerNode)} writes/node`)

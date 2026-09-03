@@ -2,7 +2,8 @@
  * Runway — datastore head-to-head scaling lens. Pure & framework-free.
  *
  * Composes the existing engine (`resolve` + `computeDatastore`) and the CAPACITY
- * metadata to expose, per datastore (Postgres / Cassandra / MongoDB):
+ * metadata to expose, per datastore (Postgres / MySQL / Aurora / Oracle /
+ * YugabyteDB / Cassandra / MongoDB):
  *  - the per-node throughput / cost / RF facts (DbFacts), and
  *  - how node count + cost scale as load grows (DbScaleCurve),
  *  - including the Postgres single-primary write wall (writeCeilingRps).
@@ -13,7 +14,7 @@
  * dbReads === reads (every read hits the store).
  */
 import type { Db, Provider } from "./types.ts";
-import { DB_KEY, resolve } from "./constants.ts";
+import { DB_KEY, resolve, writeScalesFor } from "./constants.ts";
 import { sanitizeOverrides } from "./sanitize.ts";
 import { computeDatastore } from "./components/datastore.ts";
 
@@ -70,12 +71,16 @@ export interface DatastoreScalingOptions {
   overrides?: Record<string, number>;
 }
 
-/** All datastores, in display order: single-primary engines first, then scale-out. */
+/**
+ * All datastores, in display order: single-primary engines first, then the
+ * scale-out stores (YugabyteDB bridges the two: distributed SQL, scale-out writes).
+ */
 const DBS: Db[] = [
   "postgres",
   "mysql",
   "aurora",
   "oracledb",
+  "yugabytedb",
   "cassandra",
   "mongodb",
 ];
@@ -85,23 +90,9 @@ const LABELS: Record<Db, string> = {
   mysql: "MySQL",
   aurora: "Aurora",
   oracledb: "Oracle",
+  yugabytedb: "YugabyteDB",
   cassandra: "Cassandra",
   mongodb: "MongoDB",
-};
-
-/**
- * writeScales is a property of the DB engine (mirrors stack.ts:
- * `dbKey === "cass" || dbKey === "mongo"`), not a CAPACITY leaf. Postgres,
- * MySQL, Aurora and Oracle pin writes to a single primary/writer; only the
- * scale-out stores (Cassandra, MongoDB) add write capacity by adding nodes.
- */
-const WRITE_SCALES: Record<Db, boolean> = {
-  postgres: false,
-  mysql: false,
-  aurora: false,
-  oracledb: false,
-  cassandra: true,
-  mongodb: true,
 };
 
 /**
@@ -119,6 +110,9 @@ const WRITE_SCALES: Record<Db, boolean> = {
  * - Single-primary relational engines (Postgres, MySQL/InnoDB, Aurora single
  *   writer, Oracle) are ACID + CP: they favor consistency and give up
  *   availability of the primary under a partition.
+ * - YugabyteDB is ACID + CP: distributed SQL with a Raft leader per tablet;
+ *   strongly consistent reads and writes, so it too gives up availability of
+ *   a partitioned tablet — but unlike the engines above, writes scale out.
  * - Cassandra is BASE + AP: tunable consistency whose defaults favor
  *   availability and eventual consistency under a partition.
  * - MongoDB is BASE + CP: a replica set elects a primary and favors consistency
@@ -148,6 +142,11 @@ const DB_TRAITS: Record<
     consistency: "ACID",
     cap: "CP",
     capNote: "Single primary; strong consistency over availability under partition.",
+  },
+  yugabytedb: {
+    consistency: "ACID",
+    cap: "CP",
+    capNote: "Raft leader per tablet; strongly consistent, favors consistency over availability under partition.",
   },
   cassandra: {
     consistency: "BASE",
@@ -213,7 +212,7 @@ export function datastoreFacts(opts: FactsOpts = {}): DbFacts[] {
     const costPerNode = g(`${key}.cost`) * dmult;
     const rf = g(`${key}.rf`);
     const readLatencyMs = g(`lat_db.${db}`);
-    const writeScales = WRITE_SCALES[db];
+    const writeScales = writeScalesFor(db);
     const writeCeilingRps = writeScales ? null : writePerNode / (1 - readFrac);
     const traits = DB_TRAITS[db];
     return {
@@ -260,7 +259,7 @@ export function datastoreScaling(opts: DatastoreScalingOptions): DbScaleCurve[] 
   const floor = Math.min(1, maxRps);
 
   return DBS.map((db) => {
-    const writeScales = WRITE_SCALES[db];
+    const writeScales = writeScalesFor(db);
     const points: DbScalePoint[] = [];
     for (let i = 0; i < steps; i++) {
       const t = steps === 1 ? 0 : i / (steps - 1);

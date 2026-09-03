@@ -9,6 +9,7 @@ const ACCENT: Record<SliderAccent, { color: string; glow: string }> = {
   red: { color: "var(--red)", glow: "rgba(255, 93, 93, 0.55)" },
   blue: { color: "var(--blue)", glow: "rgba(111, 140, 255, 0.55)" },
   pink: { color: "var(--pink)", glow: "rgba(255, 126, 182, 0.55)" },
+  lime: { color: "var(--lime)", glow: "rgba(200, 240, 77, 0.55)" },
 };
 
 export interface ToggleProps {
